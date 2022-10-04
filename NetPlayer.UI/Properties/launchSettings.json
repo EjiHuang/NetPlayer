@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "NetPlayer.UI (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "NetPlayer.UI (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
