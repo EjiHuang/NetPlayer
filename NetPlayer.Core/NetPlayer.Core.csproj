@@ -4,6 +4,7 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>NetPlayer.Core</RootNamespace>
     <RuntimeIdentifiers>win10-x64</RuntimeIdentifiers>
+	  <LangVersion>10</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
