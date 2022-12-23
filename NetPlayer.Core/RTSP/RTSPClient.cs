@@ -1,9 +1,11 @@
 ﻿using Microsoft.Extensions.Logging;
 using NetPlayer.Core.RTP;
 using NetPlayer.Core.RTSP.Messages;
+using NetPlayer.Core.RTSP.Sdp;
 using SIPSorcery.Net;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -237,10 +239,146 @@ namespace NetPlayer.Core.RTSP
 
         private void RtpDataReceived(object sender, RtspChunkEventArgs e)
         {
-            throw new NotImplementedException();
+            var dataReceived = e.Message as RtspData;
+
         }
 
         private void RtspMessageReceived(object sender, RtspChunkEventArgs e)
+        {
+            var message = e.Message as RtspResponse;
+
+            logger.Debug("Received RTSP Message " + message.OriginalRequest.ToString());
+
+            if (message.IsOk == false)
+            {
+                logger.Debug("Got Error in RTSP Reply " + message.ReturnCode + " " + message.ReturnMessage);
+
+                if (message.ReturnCode == 401 && (message.OriginalRequest.Headers.ContainsKey(RtspHeaderNames.Authorization) == true))
+                {
+                    Stop();
+                    return;
+                }
+
+                if (message.ReturnCode == 401 && message.Headers.ContainsKey(RtspHeaderNames.WWWAuthenticate))
+                {
+                    // 处理鉴权信息头 WWW-Authenticate header
+                    // 例如：Basic realm="AProxy"
+                    // 例如：Digest realm="AXIS_WS_ACCC8E3A0A8F", nonce="000057c3Y810622bff50b36005eb5efeae118626a161bf", stale=FALSE
+                    // 例如：Digest realm="IP Camera(21388)", nonce="534407f373af1bdff561b7b4da295354", stale="FALSE"
+
+                    var wwwAuthenticate = message.Headers[RtspHeaderNames.WWWAuthenticate];
+                    var authParams = "";
+
+                    if (wwwAuthenticate.StartsWith("basic", StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        _authType = "Basic";
+                        authParams = wwwAuthenticate[5..];
+                    }
+
+                    if (wwwAuthenticate.StartsWith("digest", StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        _authType = "Digest";
+                        authParams = wwwAuthenticate[6..];
+                    }
+
+                    var items = authParams.Split(new char[] { ',' });
+
+                    foreach (var item in items)
+                    {
+                        var parts = item.Trim().Split(new char[] { '=' }, 2);
+                        if (parts.Length >= 2 && parts[0].Trim().Equals("realm"))
+                        {
+                            _realm = parts[1].Trim(new char[] { ' ', '\"' });
+                        }
+                        else if (parts.Length >= 2 && parts[0].Trim().Equals("nonce"))
+                        {
+                            _nonce = parts[1].Trim(new char[] { ' ', '\"' });
+                        }
+                    }
+
+                    logger.Debug("WWW Authorize parsed for " + _authType + " " + _realm + " " + _nonce);
+                }
+
+                var resendMessage = message.OriginalRequest.Clone() as RtspMessage;
+                if (_authType != null)
+                {
+                    AddAuthorization(resendMessage, _userName, _password, _authType, _realm, _nonce, _url);
+                }
+
+                _rtspClient.SendMessage(resendMessage);
+
+                return;
+            }
+
+            // 来自OPTIONS请求的应答
+            if (message.OriginalRequest != null && message.OriginalRequest is RtspRequestOptions)
+            {
+                if (message.Headers.ContainsKey(RtspHeaderNames.Public))
+                {
+                    var parts = message.Headers[RtspHeaderNames.Public].Split(',');
+                    foreach (var part in parts)
+                    {
+                        if (part.Trim().ToUpper().Equals("GET_PARAMETER")) _serverSupportsGetParameter = true;
+                        if (part.Trim().ToUpper().Equals("SET_PARAMETER")) _serverSupportsSetParameter = true;
+                    }
+                }
+
+                // 启动保活时钟
+                if (_keepaliveTimer == null)
+                {
+                    _keepaliveTimer = new Timer();
+                    _keepaliveTimer.Elapsed += KeepaliveTimer_Elapsed;
+                    _keepaliveTimer.Interval = 20 * 1000;
+                    _keepaliveTimer.Enabled = true;
+
+                    // 发送DESCRIBE请求
+                    var describeMessage = new RtspRequestDescribe
+                    {
+                        RtspUri = new Uri(_url)
+                    };
+
+                    if (_authType != null)
+                    {
+                        AddAuthorization(describeMessage, _userName, _password, _authType, _realm, _nonce, _url);
+                    }
+
+                    _rtspClient.SendMessage(describeMessage);
+                }
+                else
+                {
+                    // 啥也不用做，只有等保活时钟为空是才发送DESCRIBE请求，因为保活过程中会一直发OPTIONS请求
+                }
+            }
+
+            // 来自DESCRIBE请求的应答
+            if (message.OriginalRequest != null && message.OriginalRequest is RtspRequestDescribe)
+            {
+                if (message.IsOk == false)
+                {
+                    logger.Debug("Got Error in DESCRIBE Reply " + message.ReturnCode + " " + message.ReturnMessage);
+                    return;
+                }
+            }
+
+            // 开始尝试解析SDP
+            logger.Debug(Encoding.UTF8.GetString(message.Data));
+
+            SdpFile sdpData;
+            using (var sdpStream = new StreamReader(new MemoryStream(message.Data)))
+            {
+                sdpData = SdpFile.Read(sdpStream);
+            }
+
+            var nextFreeRtpChannel = 0;
+            var nextFreeRtcpChannel = 1;
+
+            for (int x = 0; x < sdpData.Medias.Count; x++)
+            {
+
+            }
+        }
+
+        private void KeepaliveTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
             throw new NotImplementedException();
         }
