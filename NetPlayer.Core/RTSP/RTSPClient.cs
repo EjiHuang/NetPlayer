@@ -62,6 +62,11 @@ namespace NetPlayer.Core.RTSP
         private bool _clientWantsVideo;
         private bool _clientWantsAudio;
 
+        private Uri _videoUri = null;
+        private int _videoPayload = -1;
+        private int _videoDataChannel = -1;
+        private int _videoRtcpChannel = -1;
+
         private RtspTcpTransport _rtspSocket = null;
         private volatile RtspStatus _rtspSocketStatus = RtspStatus.WaitingToConnect;
         private RtspListener _rtspClient = null;
@@ -358,23 +363,26 @@ namespace NetPlayer.Core.RTSP
                     logger.Debug("Got Error in DESCRIBE Reply " + message.ReturnCode + " " + message.ReturnMessage);
                     return;
                 }
-            }
 
-            // 开始尝试解析SDP
-            logger.Debug(Encoding.UTF8.GetString(message.Data));
+                // 开始尝试解析SDP
+                logger.Debug(Encoding.UTF8.GetString(message.Data));
 
-            SdpFile sdpData;
-            using (var sdpStream = new StreamReader(new MemoryStream(message.Data)))
-            {
-                sdpData = SdpFile.Read(sdpStream);
-            }
+                SdpFile sdpData;
+                using (var sdpStream = new StreamReader(new MemoryStream(message.Data)))
+                {
+                    sdpData = SdpFile.Read(sdpStream);
+                }
 
-            var nextFreeRtpChannel = 0;
-            var nextFreeRtcpChannel = 1;
+                var nextFreeRtpChannel = 0;
+                var nextFreeRtcpChannel = 1;
 
-            for (int x = 0; x < sdpData.Medias.Count; x++)
-            {
+                for (int x = 0; x < sdpData.Medias.Count; x++)
+                {
+                    bool audio = sdpData.Medias[x].MediaType == Media.MediaTypes.audio;
+                    bool video = sdpData.Medias[x].MediaType == Media.MediaTypes.video;
 
+                    //if (video && video_payload != -1) continue;
+                }
             }
         }
 

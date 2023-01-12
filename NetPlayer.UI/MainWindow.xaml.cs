@@ -1,16 +1,21 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using FFmpeg.AutoGen;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using NetPlayer.Core.RTSP;
+using NetPlayer.UI.ViewModels;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
@@ -27,15 +32,35 @@ namespace NetPlayer.UI
     {
         private static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
 
+        private const string WindowTitle = "Net Player";
+        private const int StartupWidth = 1280;
+        private const int StartupHeight = 750;
+
+        public IntPtr Handle { get; }
+        public XamlRoot GridXamlRoot => _grid.XamlRoot;
+
+        private readonly MainViewModel _mainViewModel;
+
         public MainWindow()
         {
+            Handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            
+            Title = WindowTitle;
+            App.SetWindowSize(Handle, StartupWidth, StartupHeight);
+
             this.InitializeComponent();
+
+            _mainViewModel = App.Current.Services.GetRequiredService<MainViewModel>();
+            
+            
         }
 
-        private void myButton_Click(object sender, RoutedEventArgs e)
+        private async void Button_Click(object sender, RoutedEventArgs e)
         {
-            logger.Debug("button click.");
-            new RTSPClient();
+            if (await mediaPlayer.OpenAsync())
+            {
+                mediaPlayer.Play();
+            }
         }
     }
 }
