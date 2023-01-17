@@ -5,7 +5,9 @@ VisualStudioVersion = 17.3.32825.248
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetPlayer.Core", "NetPlayer.Core\NetPlayer.Core.csproj", "{7E781393-D815-4EB5-8DC9-85FD6274789D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetPlayer.UI", "NetPlayer.UI\NetPlayer.UI.csproj", "{BA4A75D9-4EDF-4C57-990F-28EC077510A7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetPlayer.UI", "NetPlayer.UI\NetPlayer.UI.csproj", "{BA4A75D9-4EDF-4C57-990F-28EC077510A7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetPlayer.WinUI", "NetPlayer.WinUI\NetPlayer.WinUI.csproj", "{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -59,6 +61,22 @@ Global
 		{BA4A75D9-4EDF-4C57-990F-28EC077510A7}.Release|x86.ActiveCfg = Release|x86
 		{BA4A75D9-4EDF-4C57-990F-28EC077510A7}.Release|x86.Build.0 = Release|x86
 		{BA4A75D9-4EDF-4C57-990F-28EC077510A7}.Release|x86.Deploy.0 = Release|x86
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|Any CPU.Build.0 = Debug|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|arm64.ActiveCfg = Debug|ARM64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|arm64.Build.0 = Debug|ARM64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|x64.ActiveCfg = Debug|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|x64.Build.0 = Debug|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|x86.ActiveCfg = Debug|x86
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Debug|x86.Build.0 = Debug|x86
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|Any CPU.ActiveCfg = Release|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|Any CPU.Build.0 = Release|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|arm64.ActiveCfg = Release|ARM64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|arm64.Build.0 = Release|ARM64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|x64.ActiveCfg = Release|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|x64.Build.0 = Release|x64
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|x86.ActiveCfg = Release|x86
+		{E71EF799-DE5A-4A3C-92C8-44322C7E5E0B}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
