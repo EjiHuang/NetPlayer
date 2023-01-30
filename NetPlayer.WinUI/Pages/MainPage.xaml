@@ -22,6 +22,7 @@
             <controls:MediaElement
                 x:Name="mediaPlayer"
                 IsDecoding="{x:Bind _viewModel.IsDecodeing, Mode=TwoWay}"
+                IsStreaming="{x:Bind _viewModel.IsStreaming, Mode=TwoWay}"
                 MediaPlayer="{x:Bind _viewModel.MediaPlayer, Mode=TwoWay}"
                 Url="{x:Bind _viewModel.Url, Mode=OneWay}" />
         </Grid>
@@ -48,6 +49,25 @@
                                 PropertyName="Content"
                                 TargetObject="{Binding ElementName=playButton}"
                                 Value="Play" />
+                        </interactions:DataTriggerBehavior>
+                    </interactivity:Interaction.Behaviors>
+                </Button>
+                <Button
+                    x:Name="pushButton"
+                    Margin="4,0,0,0"
+                    Command="{x:Bind _viewModel.StreamingCommand}">
+                    <interactivity:Interaction.Behaviors>
+                        <interactions:DataTriggerBehavior Binding="{x:Bind _viewModel.IsStreaming, Mode=OneWay}" Value="True">
+                            <interactions:ChangePropertyAction
+                                PropertyName="Content"
+                                TargetObject="{Binding ElementName=pushButton}"
+                                Value="Stop Push" />
+                        </interactions:DataTriggerBehavior>
+                        <interactions:DataTriggerBehavior Binding="{x:Bind _viewModel.IsStreaming, Mode=OneWay}" Value="False">
+                            <interactions:ChangePropertyAction
+                                PropertyName="Content"
+                                TargetObject="{Binding ElementName=pushButton}"
+                                Value="Start Push" />
                         </interactions:DataTriggerBehavior>
                     </interactivity:Interaction.Behaviors>
                 </Button>

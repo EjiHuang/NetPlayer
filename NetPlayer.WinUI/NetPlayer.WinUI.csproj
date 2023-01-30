@@ -22,6 +22,12 @@
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
 	<ItemGroup>
+	  <Compile Remove="FFmpeg\**" />
+	  <EmbeddedResource Remove="FFmpeg\**" />
+	  <None Remove="FFmpeg\**" />
+	  <Page Remove="FFmpeg\**" />
+	</ItemGroup>
+	<ItemGroup>
 	  <None Remove="Pages\MainPage.xaml" />
 	</ItemGroup>
 
@@ -61,29 +67,6 @@
 	    <Generator>MSBuild:Compile</Generator>
 	  </Page>
 	</ItemGroup>
-	<ItemGroup>
-	  <None Update="FFmpeg\bin\x64\avcodec-59.dll">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="FFmpeg\bin\x64\avdevice-59.dll">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="FFmpeg\bin\x64\avfilter-8.dll">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="FFmpeg\bin\x64\avformat-59.dll">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="FFmpeg\bin\x64\avutil-57.dll">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="FFmpeg\bin\x64\swresample-4.dll">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="FFmpeg\bin\x64\swscale-6.dll">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	</ItemGroup>
 
 	<!-- 
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution 
@@ -93,4 +76,10 @@
 	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
 		<HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
 	</PropertyGroup>
+	<ItemGroup>
+	  <PRIResource Remove="FFmpeg\**" />
+	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\NetPlayer.FFmpeg\NetPlayer.FFmpeg.csproj" />
+	</ItemGroup>
 </Project>

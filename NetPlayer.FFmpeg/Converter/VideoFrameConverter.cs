@@ -3,11 +3,9 @@
  */
 
 using FFmpeg.AutoGen;
-using NetPlayer.WinUI.FFmpeg.Utils;
-using System;
 using System.Runtime.InteropServices;
 
-namespace NetPlayer.WinUI.FFmpeg.Core
+namespace NetPlayer.FFmpeg.Converter
 {
     public sealed unsafe class VideoFrameConverter : IDisposable
     {

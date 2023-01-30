@@ -1,4 +1,6 @@
-﻿//https://github.com/sipsorcery-org/SIPSorceryMedia.FFmpeg/blob/master/src/Helper.cs
+﻿/*
+ https://github.com/sipsorcery-org/SIPSorceryMedia.FFmpeg/blob/master/src/Helper.cs
+ */
 
 using SIPSorceryMedia.Abstractions;
 using System.Collections.Generic;

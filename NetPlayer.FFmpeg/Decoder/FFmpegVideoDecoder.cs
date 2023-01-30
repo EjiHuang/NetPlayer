@@ -7,10 +7,13 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace NetPlayer.WinUI.FFmpeg.Core.Decoder
+namespace NetPlayer.FFmpeg.Decoder
 {
     public class FFmpegVideoDecoder : IDisposable
     {
+        public const int MIN_SLEEP_MILLISECONDS = 15;
+        public const int DEFAULT_VIDEO_FRAME_RATE = 30;
+
         private static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
 
         unsafe private AVInputFormat* _inputFormat = null;
@@ -153,7 +156,7 @@ namespace NetPlayer.WinUI.FFmpeg.Core.Decoder
                 if (Double.IsNaN(_videoAvgFrameRate) || (_videoAvgFrameRate <= 0))
                     _videoAvgFrameRate = 2;
 
-                _maxVideoFrameSpace = (int)(_videoAvgFrameRate > 0 ? 1000 / _videoAvgFrameRate : 1000 / Helper.DEFAULT_VIDEO_FRAME_RATE);
+                _maxVideoFrameSpace = (int)(_videoAvgFrameRate > 0 ? 1000 / _videoAvgFrameRate : 1000 / DEFAULT_VIDEO_FRAME_RATE);
             }
             return true;
         }
@@ -275,7 +278,7 @@ namespace NetPlayer.WinUI.FFmpeg.Core.Decoder
                                         //Console.WriteLine($"Decoded video frame {frame->width}x{frame->height}, ts {frame->best_effort_timestamp}, delta {frame->best_effort_timestamp - prevVidTs}, dpts {dpts}.");
 
                                         int sleep = (int)(dpts * 1000 - DateTime.Now.Subtract(startTime).TotalMilliseconds);
-                                        if (sleep > Helper.MIN_SLEEP_MILLISECONDS)
+                                        if (sleep > MIN_SLEEP_MILLISECONDS)
                                         {
                                             ffmpeg.av_usleep((uint)(Math.Min(_maxVideoFrameSpace, sleep) * 1000));
                                         }
@@ -297,7 +300,7 @@ namespace NetPlayer.WinUI.FFmpeg.Core.Decoder
 
                     if (_isPaused && !_isClosed)
                     {
-                        ffmpeg.av_usleep((uint)(Helper.MIN_SLEEP_MILLISECONDS * 1000));
+                        ffmpeg.av_usleep((uint)(MIN_SLEEP_MILLISECONDS * 1000));
                         goto Repeat;
                     }
                     else

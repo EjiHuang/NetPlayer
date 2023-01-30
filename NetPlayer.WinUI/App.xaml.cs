@@ -11,7 +11,8 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
-using NetPlayer.WinUI.FFmpeg.Utils;
+using NetPlayer.FFmpeg;
+using NetPlayer.WinUI.Controls;
 using NetPlayer.WinUI.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -62,6 +63,7 @@ namespace NetPlayer.WinUI
             var services = new ServiceCollection();
 
             services.AddSingleton<MainPageViewModel>();
+            services.AddSingleton<ContentDialogService>();
 
             return services.BuildServiceProvider();
         }
