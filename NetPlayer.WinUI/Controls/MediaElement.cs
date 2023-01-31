@@ -15,9 +15,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.DirectX;
+using static System.Net.Mime.MediaTypeNames;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -26,16 +28,22 @@ namespace NetPlayer.WinUI.Controls
 {
     public sealed class MediaElement : Control
     {
-        CanvasControl? _canvas;
-        CanvasBitmap? _bitmap;
+        private static readonly object _lockobj = new object();
+        private CanvasControl? _canvas;
+        private CanvasBitmap? _bitmap;
 
-        FFmpegVideoDecoder? _videoDecoder;
-        VideoFrameConverter? _videoFrameBGRA32Converter = null;
+        private FFmpegVideoDecoder? _videoDecoder;
+        private VideoFrameConverter? _videoFrameBGRA32Converter = null;
 
-        private readonly ConcurrentQueue<AVFrame> _encodeFrameQueue = new();
+        private VideoFrameConverter? _encoderPixelConverter = null;
+
+        private readonly ConcurrentQueue<AVFrame> _encodeVideoStreamQueue = new();
         private CancellationTokenSource? _ctsForPush;
-        FFmpegStreamEncoder? _streamEncoder;
-        VideoFrameConverter? _encoderPixelConverter = null;
+        private FFmpegStreamEncoder? _streamEncoder;
+
+        private readonly ConcurrentQueue<AVFrame> _encodeVideoFileQueue = new();
+        private CancellationTokenSource? _ctsForRecord;
+        private FFmpegVideoEncoder? _videoEncoder;
 
         public MediaElement()
         {
@@ -83,8 +91,8 @@ namespace NetPlayer.WinUI.Controls
                         var ret = _videoDecoder.InitialiseSource(new Dictionary<string, string>
                         {
                             { "timeout", "5000000" },
-                            { "fflags", "nobuffer" },
-                            { "rtsp_transport", "udp" },
+                            //{ "fflags", "nobuffer" },
+                            { "rtsp_transport", "tcp" },
                         });
 
                         if (ret == false)
@@ -105,6 +113,84 @@ namespace NetPlayer.WinUI.Controls
             return false;
         }
 
+        public void Record(string filePath)
+        {
+            var ext = Path.GetExtension(filePath);
+            if (ext != null && ext == ".ts")
+            {
+                _ctsForRecord = new CancellationTokenSource();
+                IsRecording = true;
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        _videoEncoder = new FFmpegVideoEncoder(filePath);
+                        var frameNumber = 0;
+
+                        while (_ctsForRecord != null && !_ctsForRecord.IsCancellationRequested)
+                        {
+                            if (_encodeVideoFileQueue.TryDequeue(out var frame))
+                            {
+                                var width = frame.width;
+                                var height = frame.height;
+                                var srcPixelFormat = AVPixelFormat.AV_PIX_FMT_BGR0;
+                                var dstPixelFormat = AVPixelFormat.AV_PIX_FMT_YUV420P;  // For H264
+
+                                if (_encoderPixelConverter == null || _encoderPixelConverter.SourceWidth != width || _encoderPixelConverter.SourceHeight != height)
+                                {
+                                    _encoderPixelConverter = new VideoFrameConverter(width, height, srcPixelFormat, width, height, dstPixelFormat);
+                                }
+
+                                lock (_lockobj)
+                                {
+                                    var convertedFrame = _encoderPixelConverter.Convert(frame);
+                                    convertedFrame.pts = frameNumber;
+
+                                    _videoEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, fps: 25);
+                                }
+
+                                frameNumber++;
+                            }
+                            else
+                            {
+                                Thread.Sleep(1);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("[Media Player] " + ex.ToString());
+                    }
+
+                    // Dispose
+                    _videoEncoder?.Dispose();
+                    _videoEncoder = null;
+
+                    _encodeVideoFileQueue?.Clear();
+
+                    Debug.WriteLine("[Media Player] " + "End of record.");
+                    DispatcherQueue.TryEnqueue(() => { IsRecording = false; });
+
+                }, _ctsForRecord.Token);
+            }
+        }
+
+        public void StopRecord()
+        {
+            try
+            {
+                _ctsForRecord?.Cancel();
+                _ctsForRecord = null;
+
+                IsRecording = false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Media Player] " + ex.ToString());
+            }
+        }
+
         public void Push(string url)
         {
             _ctsForPush = new CancellationTokenSource();
@@ -119,7 +205,7 @@ namespace NetPlayer.WinUI.Controls
 
                     while (_ctsForPush != null && !_ctsForPush.IsCancellationRequested)
                     {
-                        if (_encodeFrameQueue.TryDequeue(out var frame))
+                        if (_encodeVideoStreamQueue.TryDequeue(out var frame))
                         {
                             var width = frame.width;
                             var height = frame.height;
@@ -131,15 +217,20 @@ namespace NetPlayer.WinUI.Controls
                                 _encoderPixelConverter = new VideoFrameConverter(width, height, srcPixelFormat, width, height, dstPixelFormat);
                             }
 
-                            var convertedFrame = _encoderPixelConverter.Convert(frame);
-                            convertedFrame.pts = frameNumber;
+                            lock (_lockobj)
+                            {
+                                var convertedFrame = _encoderPixelConverter.Convert(frame);
+                                convertedFrame.pts = frameNumber;
 
-                            _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, fps: 25);
+                                _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, fps: 0);
+                            }
 
                             frameNumber++;
                         }
-
-                        Thread.Sleep(1);
+                        else
+                        {
+                            Thread.Sleep(1);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -151,7 +242,7 @@ namespace NetPlayer.WinUI.Controls
                 _streamEncoder?.Dispose();
                 _streamEncoder = null;
 
-                _encodeFrameQueue?.Clear();
+                _encodeVideoStreamQueue?.Clear();
 
                 Debug.WriteLine("[Media Player] " + "End of streaming.");
                 DispatcherQueue.TryEnqueue(() => { IsStreaming = false; });
@@ -222,10 +313,14 @@ namespace NetPlayer.WinUI.Controls
                     _bitmap = CanvasBitmap.CreateFromBytes(CanvasDevice.GetSharedDevice(), rawImage.GetBuffer(), rawImage.Width, rawImage.Height, DirectXPixelFormat.B8G8R8A8UIntNormalized);
                     _canvas?.Invalidate();
 
-                    // 如果启动了视频流编码器，则将转换好的视频帧用于视频流编码
-                    if (_ctsForPush != null && !_ctsForPush.IsCancellationRequested)
+                    // 如果启动了编码器，则将转换好的视频帧用于视频编码
+                    if ((_ctsForRecord != null && !_ctsForRecord.IsCancellationRequested))
                     {
-                        _encodeFrameQueue.Enqueue(frameBGRA32);
+                        _encodeVideoFileQueue.Enqueue(frameBGRA32);
+                    }
+                    if ((_ctsForPush != null && !_ctsForPush.IsCancellationRequested))
+                    {
+                        _encodeVideoStreamQueue.Enqueue(frameBGRA32);
                     }
                 }
             }
@@ -256,6 +351,15 @@ namespace NetPlayer.WinUI.Controls
                 IsDecoding = false;
             }
         }
+
+        public bool IsRecording
+        {
+            get { return (bool)GetValue(IsRecordingProperty); }
+            set { SetValue(IsRecordingProperty, value); }
+        }
+
+        public static readonly DependencyProperty IsRecordingProperty =
+            DependencyProperty.Register("IsRecording", typeof(bool), typeof(MediaElement), new PropertyMetadata(false));
 
         public bool IsStreaming
         {

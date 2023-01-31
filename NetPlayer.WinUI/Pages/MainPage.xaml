@@ -22,6 +22,7 @@
             <controls:MediaElement
                 x:Name="mediaPlayer"
                 IsDecoding="{x:Bind _viewModel.IsDecodeing, Mode=TwoWay}"
+                IsRecording="{x:Bind _viewModel.IsRecording, Mode=TwoWay}"
                 IsStreaming="{x:Bind _viewModel.IsStreaming, Mode=TwoWay}"
                 MediaPlayer="{x:Bind _viewModel.MediaPlayer, Mode=TwoWay}"
                 Url="{x:Bind _viewModel.Url, Mode=OneWay}" />
@@ -53,6 +54,25 @@
                     </interactivity:Interaction.Behaviors>
                 </Button>
                 <Button
+                    x:Name="recordButton"
+                    Margin="4,0,0,0"
+                    Command="{x:Bind _viewModel.RecordCommand}">
+                    <interactivity:Interaction.Behaviors>
+                        <interactions:DataTriggerBehavior Binding="{x:Bind _viewModel.IsRecording, Mode=OneWay}" Value="True">
+                            <interactions:ChangePropertyAction
+                                PropertyName="Content"
+                                TargetObject="{Binding ElementName=recordButton}"
+                                Value="Stop Record" />
+                        </interactions:DataTriggerBehavior>
+                        <interactions:DataTriggerBehavior Binding="{x:Bind _viewModel.IsRecording, Mode=OneWay}" Value="False">
+                            <interactions:ChangePropertyAction
+                                PropertyName="Content"
+                                TargetObject="{Binding ElementName=recordButton}"
+                                Value="Record" />
+                        </interactions:DataTriggerBehavior>
+                    </interactivity:Interaction.Behaviors>
+                </Button>
+                <Button
                     x:Name="pushButton"
                     Margin="4,0,0,0"
                     Command="{x:Bind _viewModel.StreamingCommand}">
@@ -67,7 +87,7 @@
                             <interactions:ChangePropertyAction
                                 PropertyName="Content"
                                 TargetObject="{Binding ElementName=pushButton}"
-                                Value="Start Push" />
+                                Value="Push" />
                         </interactions:DataTriggerBehavior>
                     </interactivity:Interaction.Behaviors>
                 </Button>

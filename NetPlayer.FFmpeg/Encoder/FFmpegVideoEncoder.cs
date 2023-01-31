@@ -3,7 +3,7 @@ using System.Diagnostics;
 
 namespace NetPlayer.FFmpeg.Encoder
 {
-    public sealed unsafe class FFmpegStreamEncoder : IDisposable
+    public sealed unsafe class FFmpegVideoEncoder : IDisposable
     {
         private static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
 
@@ -12,21 +12,12 @@ namespace NetPlayer.FFmpeg.Encoder
         private AVStream* _pStream;
         private AVCodecID _codecID;
 
-        private string? _formatName;
-        private string _url;
-
+        private string _fileName;
         private bool _isEncoderInitialised = false;
 
-        public FFmpegStreamEncoder(string url)
+        public FFmpegVideoEncoder(string fileName)
         {
-            // 解析格式
-            _formatName = GetFormatType(url);
-            if (_formatName == null)
-            {
-                throw new Exception("Not support this url:" + url);
-            }
-
-            _url = url;
+            _fileName = fileName;
         }
 
         public void InitialiseEncoder(AVCodecID codecID, int width, int height, int fps)
@@ -38,7 +29,7 @@ namespace NetPlayer.FFmpeg.Encoder
                 // 创建输出数据的封装格式
                 _pFormatContext = ffmpeg.avformat_alloc_context();
                 var pFormatContext = _pFormatContext;
-                ffmpeg.avformat_alloc_output_context2(&pFormatContext, null, _formatName, _url).ThrowExceptionIfError();
+                ffmpeg.avformat_alloc_output_context2(&pFormatContext, null, null, _fileName).ThrowExceptionIfError();
                 if (_pFormatContext == null)
                 {
                     throw new Exception("Could not allocate an output context");
@@ -107,23 +98,16 @@ namespace NetPlayer.FFmpeg.Encoder
                 logger.Debug($"Successfully initialised ffmpeg based image encoder: CodecId:[{codecID}] - {width}:{height} - {fps} Fps");
 
                 // 输出一些信息
-                ffmpeg.av_dump_format(pFormatContext, 0, _url, 1);
+                ffmpeg.av_dump_format(pFormatContext, 0, _fileName, 1);
 
                 // 创建并初始化AVIOContext
-                if (ffmpeg.avio_open(&pFormatContext->pb, _url, ffmpeg.AVIO_FLAG_WRITE) < 0)
+                if (ffmpeg.avio_open(&pFormatContext->pb, _fileName, ffmpeg.AVIO_FLAG_WRITE) < 0)
                 {
                     Debug.WriteLine("Failed to open output file. It could be a video stream.");
                 }
 
                 // 配置选项
-                AVDictionary* options = null;
-                if (_formatName == "rtsp")
-                {
-                    ffmpeg.av_dict_set(&options, "rtsp_transport", "tcp", 0);
-                    ffmpeg.av_dict_set(&options, "profile", "baseline", 0);
-                }
-
-                ffmpeg.avformat_write_header(pFormatContext, &options).ThrowExceptionIfError();
+                ffmpeg.avformat_write_header(pFormatContext, null).ThrowExceptionIfError();
                 _pFormatContext = pFormatContext;
             }
         }
@@ -171,31 +155,6 @@ namespace NetPlayer.FFmpeg.Encoder
                 ffmpeg.av_packet_unref(pPacket);
                 ffmpeg.av_packet_free(&pPacket);
             }
-        }
-
-        private string? GetFormatType(string url)
-        {
-            if (url.StartsWith("rtsp://"))
-            {
-                return "rtsp";
-            }
-
-            if (url.StartsWith("udp://"))
-            {
-                return "h264";
-            }
-
-            if (url.StartsWith("rtp://"))
-            {
-                return "rtp";
-            }
-
-            if (url.StartsWith("rtmp://"))
-            {
-                return "flv";
-            }
-
-            return null;
         }
 
         public void Dispose()
