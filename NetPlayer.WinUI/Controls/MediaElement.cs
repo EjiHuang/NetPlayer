@@ -91,7 +91,7 @@ namespace NetPlayer.WinUI.Controls
                         var ret = _videoDecoder.InitialiseSource(new Dictionary<string, string>
                         {
                             { "timeout", "5000000" },
-                            //{ "fflags", "nobuffer" },
+                            { "fflags", "nobuffer" },
                             { "rtsp_transport", "tcp" },
                         });
 
