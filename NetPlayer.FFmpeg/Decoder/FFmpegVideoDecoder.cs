@@ -5,6 +5,8 @@
 using FFmpeg.AutoGen;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 namespace NetPlayer.FFmpeg.Decoder
@@ -34,6 +36,12 @@ namespace NetPlayer.FFmpeg.Decoder
         private bool _isClosed;
         private bool _isDisposed;
         private Task? _sourceTask;
+
+        private Task? _infoTask;
+        private long _framesDisplayed;
+        private long _videoBytes;
+        public delegate void OnCurrentStatsDelegate(DecodeStats curStats);
+        public event OnCurrentStatsDelegate? OnCurStats;
 
         public delegate void OnFrameDelegate(ref AVFrame frame);
         public event OnFrameDelegate? OnVideoFrame;
@@ -153,6 +161,11 @@ namespace NetPlayer.FFmpeg.Decoder
                     _videoTimebase = 0.001;
 
                 _videoAvgFrameRate = ffmpeg.av_q2d(_fmtCtx->streams[_videoStreamIndex]->avg_frame_rate);
+                if (_videoAvgFrameRate <= 0)
+                {
+                    _videoAvgFrameRate = ffmpeg.av_q2d(_fmtCtx->streams[_videoStreamIndex]->r_frame_rate);
+                }
+
                 if (Double.IsNaN(_videoAvgFrameRate) || (_videoAvgFrameRate <= 0))
                     _videoAvgFrameRate = 2;
 
@@ -171,6 +184,11 @@ namespace NetPlayer.FFmpeg.Decoder
                 {
                     _isStarted = true;
                     _sourceTask = Task.Run(RunDecodeLoop);
+
+                    if (_infoTask == null)
+                    {
+                        _infoTask = Task.Run(DecodeInfoLoop);
+                    }
                 }
             }
             return _isStarted;
@@ -220,8 +238,10 @@ namespace NetPlayer.FFmpeg.Decoder
                 bool canContinue = true;
                 bool managePacket = true;
 
-
                 double firts_dpts = 0;
+
+                _framesDisplayed = 0;
+                _videoBytes = 0;
 
                 try
                 {
@@ -259,7 +279,10 @@ namespace NetPlayer.FFmpeg.Decoder
                                 int recvRes = ffmpeg.avcodec_receive_frame(_vidDecCtx, avFrame);
                                 while (recvRes >= 0)
                                 {
-                                    //Console.WriteLine($"video number samples {frame->nb_samples}, pts={frame->pts}, dts={(int)(_videoTimebase * frame->pts * 1000)}, width {frame->width}, height {frame->height}.");
+                                    //Debug.WriteLine($"video number samples {avFrame->nb_samples}, pts={avFrame->pts}, dts={(int)(_videoTimebase * avFrame->pts * 1000)}, width {avFrame->width}, height {avFrame->height}.");
+
+                                    _framesDisplayed++;
+                                    _videoBytes += pkt->size;
 
                                     OnVideoFrame?.Invoke(ref *avFrame);
 
@@ -275,7 +298,7 @@ namespace NetPlayer.FFmpeg.Decoder
                                             dpts -= firts_dpts;
                                         }
 
-                                        //Console.WriteLine($"Decoded video frame {frame->width}x{frame->height}, ts {frame->best_effort_timestamp}, delta {frame->best_effort_timestamp - prevVidTs}, dpts {dpts}.");
+                                        //Debug.WriteLine($"Decoded video frame {avFrame->width}x{avFrame->height}, ts {avFrame->best_effort_timestamp}, delta {avFrame->best_effort_timestamp - prevVidTs}, dpts {dpts}.");
 
                                         int sleep = (int)(dpts * 1000 - DateTime.Now.Subtract(startTime).TotalMilliseconds);
                                         if (sleep > MIN_SLEEP_MILLISECONDS)
@@ -350,6 +373,81 @@ namespace NetPlayer.FFmpeg.Decoder
             }
         }
 
+        private void DecodeInfoLoop()
+        {
+            int curLoop = 0;
+            int interval = 100;
+            int secondLoops = 1000 / interval;
+            long prevTicks = DateTime.UtcNow.Ticks;
+            double curSecond = 0;
+            DecodeStats curStats = new();
+
+            do
+            {
+                try
+                {
+                    if (_isStarted == false)
+                    {
+                        Thread.Sleep(interval);
+                        continue;
+                    }
+
+                    curLoop++;
+                    if (curLoop == secondLoops)
+                    {
+                        var curTicks = DateTime.UtcNow.Ticks;
+                        curSecond = (curTicks - prevTicks) / 10000000.0;
+                        prevTicks = curTicks;
+                    }
+
+                    lock (this)
+                    {
+                        // Get every second info
+                        if (curLoop == secondLoops)
+                        {
+                            curStats.VideoBitRate = (_videoBytes - curStats.VideoBytes) * 8 / 1000.0;
+                            curStats.VideoBytes = _videoBytes;
+
+                            curStats.FpsCurrent = (_framesDisplayed - curStats.FramesDisplayed) / curSecond;
+                            curStats.FramesDisplayed = _framesDisplayed;
+
+                            OnCurStats?.Invoke(curStats);
+                        }
+                    }
+
+                    if (curLoop == secondLoops)
+                        curLoop = 0;
+
+                    Thread.Sleep(interval);
+                }
+                catch
+                {
+                    curLoop = 0;
+                }
+            } while (true);
+        }
+
+        public unsafe int GetFrameRate()
+        {
+            int frameRate = (int)ffmpeg.av_q2d(_vidDecCtx->framerate);
+
+            if (frameRate > 0)
+            {
+                return frameRate;
+            }
+
+            if (_videoAvgFrameRate > 2)
+            {
+                frameRate = (int)_videoAvgFrameRate;
+            }
+            else
+            {
+                frameRate = (int)ffmpeg.av_q2d(ffmpeg.av_guess_frame_rate(null, _fmtCtx->streams[_videoStreamIndex], null));
+            }
+
+            return frameRate;
+        }
+
         public void Dispose()
         {
             if (_isInitialised && !_isDisposed)
@@ -388,5 +486,13 @@ namespace NetPlayer.FFmpeg.Decoder
                 }
             }
         }
+    }
+
+    public struct DecodeStats
+    {
+        public long FramesDisplayed { get; set; }
+        public long VideoBytes { get; set; }
+        public double FpsCurrent { get; set; }
+        public double VideoBitRate { get; set; }
     }
 }

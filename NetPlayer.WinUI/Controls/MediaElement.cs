@@ -1,11 +1,13 @@
 // Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
+using CommunityToolkit.WinUI.UI.Converters;
 using FFmpeg.AutoGen;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using NetPlayer.FFmpeg.Converter;
 using NetPlayer.FFmpeg.Decoder;
 using NetPlayer.FFmpeg.Encoder;
@@ -19,7 +21,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.DirectX;
-using static System.Net.Mime.MediaTypeNames;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -61,6 +62,8 @@ namespace NetPlayer.WinUI.Controls
             }
 
             MediaPlayer = this;
+
+            ControlDataBind();
         }
 
         private void CanvasControl_Draw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -71,6 +74,30 @@ namespace NetPlayer.WinUI.Controls
             var transform = Win2DHelper.CalcutateImageCenteredTransform(_canvas!.ActualSize, _bitmap.Size);
             transform.Source = _bitmap;
             args.DrawingSession.DrawImage(transform);
+        }
+
+        private void ControlDataBind()
+        {
+            var tblFpsCurrent = GetTemplateChild("tblFpsCurrent") as TextBlock;
+            var tblVideoBitRate = GetTemplateChild("tblVideoBitRate") as TextBlock;
+
+            tblFpsCurrent?.SetBinding(TextBlock.TextProperty, new Binding
+            {
+                Path = new PropertyPath(nameof(FpsCurrent)),
+                Source = this,
+                Mode = BindingMode.OneWay,
+                Converter = new StringFormatConverter(),
+                ConverterParameter = "{0:f2}"
+            });
+
+            tblVideoBitRate?.SetBinding(TextBlock.TextProperty, new Binding
+            {
+                Path = new PropertyPath(nameof(VideoBitRate)),
+                Source = this,
+                Mode = BindingMode.OneWay,
+                Converter = new StringFormatConverter(),
+                ConverterParameter = "{0:f0} Kbps"
+            });
         }
 
         public async Task<bool> OpenAsync(string? url = null)
@@ -102,6 +129,7 @@ namespace NetPlayer.WinUI.Controls
                         }
 
                         _videoDecoder.OnVideoFrame += OnVideoFrame;
+                        _videoDecoder.OnCurStats += OnCurStats;
                         _videoDecoder.OnEndOfFile += OnEndOfFile;
                         _videoDecoder.OnError += OnError;
 
@@ -111,6 +139,18 @@ namespace NetPlayer.WinUI.Controls
             }
 
             return false;
+        }
+
+        private void OnCurStats(DecodeStats curStats)
+        {
+            DispatcherQueue?.TryEnqueue(() =>
+            {
+                if (IsShowStats)
+                {
+                    FpsCurrent = curStats.FpsCurrent;
+                    VideoBitRate = curStats.VideoBitRate;
+                }
+            });
         }
 
         public void Record(string filePath)
@@ -127,6 +167,7 @@ namespace NetPlayer.WinUI.Controls
                     {
                         _videoEncoder = new FFmpegVideoEncoder(filePath);
                         var frameNumber = 0;
+                        var frameRate = 0;
 
                         while (_ctsForRecord != null && !_ctsForRecord.IsCancellationRequested)
                         {
@@ -136,6 +177,17 @@ namespace NetPlayer.WinUI.Controls
                                 var height = frame.height;
                                 var srcPixelFormat = AVPixelFormat.AV_PIX_FMT_BGR0;
                                 var dstPixelFormat = AVPixelFormat.AV_PIX_FMT_YUV420P;  // For H264
+
+                                if (_videoDecoder != null && frameRate == 0)
+                                {
+                                    frameRate = _videoDecoder.GetFrameRate();
+                                    if (frameRate == 0)
+                                    {
+                                        frameRate = 25;
+                                    }
+
+                                    Debug.WriteLine("[Media Player] " + $"Encode frame rate = {frameRate}.");
+                                }
 
                                 if (_encoderPixelConverter == null || _encoderPixelConverter.SourceWidth != width || _encoderPixelConverter.SourceHeight != height)
                                 {
@@ -147,7 +199,7 @@ namespace NetPlayer.WinUI.Controls
                                     var convertedFrame = _encoderPixelConverter.Convert(frame);
                                     convertedFrame.pts = frameNumber;
 
-                                    _videoEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, fps: 25);
+                                    _videoEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, frameRate: frameRate);
                                 }
 
                                 frameNumber++;
@@ -202,6 +254,7 @@ namespace NetPlayer.WinUI.Controls
                 {
                     _streamEncoder = new FFmpegStreamEncoder(url);
                     var frameNumber = 0;
+                    var frameRate = 0;
 
                     while (_ctsForPush != null && !_ctsForPush.IsCancellationRequested)
                     {
@@ -211,6 +264,17 @@ namespace NetPlayer.WinUI.Controls
                             var height = frame.height;
                             var srcPixelFormat = AVPixelFormat.AV_PIX_FMT_BGR0;
                             var dstPixelFormat = AVPixelFormat.AV_PIX_FMT_YUV420P;  // For H264
+
+                            if (_videoDecoder != null && frameRate == 0)
+                            {
+                                frameRate = _videoDecoder.GetFrameRate();
+                                if (frameRate == 0)
+                                {
+                                    frameRate = 25;
+                                }
+
+                                Debug.WriteLine("[Media Player] " + $"Encode frame rate = {frameRate}.");
+                            }
 
                             if (_encoderPixelConverter == null || _encoderPixelConverter.SourceWidth != width || _encoderPixelConverter.SourceHeight != height)
                             {
@@ -222,7 +286,7 @@ namespace NetPlayer.WinUI.Controls
                                 var convertedFrame = _encoderPixelConverter.Convert(frame);
                                 convertedFrame.pts = frameNumber;
 
-                                _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, fps: 0);
+                                _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, frameRate: 0);
                             }
 
                             frameNumber++;
@@ -351,6 +415,33 @@ namespace NetPlayer.WinUI.Controls
                 IsDecoding = false;
             }
         }
+
+        public double VideoBitRate
+        {
+            get { return (double)GetValue(VideoBitRateProperty); }
+            set { SetValue(VideoBitRateProperty, value); }
+        }
+
+        public static readonly DependencyProperty VideoBitRateProperty =
+            DependencyProperty.Register("VideoBitRate", typeof(double), typeof(MediaElement), new PropertyMetadata(0));
+
+        private double FpsCurrent
+        {
+            get { return (double)GetValue(FpsCurrentProperty); }
+            set { SetValue(FpsCurrentProperty, value); }
+        }
+
+        private static readonly DependencyProperty FpsCurrentProperty =
+            DependencyProperty.Register("FpsCurrent", typeof(double), typeof(MediaElement), new PropertyMetadata(0));
+
+        public bool IsShowStats
+        {
+            get { return (bool)GetValue(IsShowStatsProperty); }
+            set { SetValue(IsShowStatsProperty, value); }
+        }
+
+        public static readonly DependencyProperty IsShowStatsProperty =
+            DependencyProperty.Register("IsShowStats", typeof(bool), typeof(MediaElement), new PropertyMetadata(false));
 
         public bool IsRecording
         {

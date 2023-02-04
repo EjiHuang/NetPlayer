@@ -29,7 +29,7 @@ namespace NetPlayer.FFmpeg.Encoder
             _url = url;
         }
 
-        public void InitialiseEncoder(AVCodecID codecID, int width, int height, int fps)
+        public void InitialiseEncoder(AVCodecID codecID, int width, int height, int frameRate)
         {
             if (!_isEncoderInitialised)
             {
@@ -72,19 +72,19 @@ namespace NetPlayer.FFmpeg.Encoder
 
                 _pEncoderContext->width = width;
                 _pEncoderContext->height = height;
-                _pEncoderContext->time_base.den = fps;
+                _pEncoderContext->time_base.den = frameRate;
                 _pEncoderContext->time_base.num = 1;
                 _pEncoderContext->framerate.den = 1;
-                _pEncoderContext->framerate.num = fps;
+                _pEncoderContext->framerate.num = frameRate;
 
                 _pEncoderContext->pix_fmt = AVPixelFormat.AV_PIX_FMT_YUV420P;
                 _pEncoderContext->codec_type = AVMediaType.AVMEDIA_TYPE_VIDEO;
 
                 // 设置关键帧间隔
-                if (fps < 5)
+                if (frameRate < 5)
                     _pEncoderContext->gop_size = 1;
                 else
-                    _pEncoderContext->gop_size = fps;
+                    _pEncoderContext->gop_size = frameRate;
 
                 if (_codecID == AVCodecID.AV_CODEC_ID_H264)
                 {
@@ -104,7 +104,7 @@ namespace NetPlayer.FFmpeg.Encoder
                 ffmpeg.avcodec_open2(_pEncoderContext, pCodec, null).ThrowExceptionIfError();
                 ffmpeg.avcodec_parameters_from_context(_pStream->codecpar, _pEncoderContext);
 
-                logger.Debug($"Successfully initialised ffmpeg based image encoder: CodecId:[{codecID}] - {width}:{height} - {fps} Fps");
+                logger.Debug($"Successfully initialised ffmpeg based image encoder: CodecId:[{codecID}] - {width}:{height} - {frameRate} Fps");
 
                 // 输出一些信息
                 ffmpeg.av_dump_format(pFormatContext, 0, _url, 1);
@@ -128,14 +128,14 @@ namespace NetPlayer.FFmpeg.Encoder
             }
         }
 
-        public void TryEncodeNextPacket(AVFrame uncompressedFrame, AVCodecID codecID = AVCodecID.AV_CODEC_ID_H264, int fps = 30)
+        public void TryEncodeNextPacket(AVFrame uncompressedFrame, AVCodecID codecID = AVCodecID.AV_CODEC_ID_H264, int frameRate = 30)
         {
             var width = uncompressedFrame.width;
             var height = uncompressedFrame.height;
 
             if (!_isEncoderInitialised)
             {
-                InitialiseEncoder(codecID, width, height, fps);
+                InitialiseEncoder(codecID, width, height, frameRate);
             }
             else if (_pEncoderContext->width != width || _pEncoderContext->height != height)
             {

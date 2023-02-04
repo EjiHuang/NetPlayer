@@ -9,12 +9,28 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="controls:MediaElement">
-                    <Border
+                    <Grid
                         Background="{TemplateBinding Background}"
                         BorderBrush="{TemplateBinding BorderBrush}"
                         BorderThickness="{TemplateBinding BorderThickness}">
                         <canvas:CanvasControl x:Name="canvas" />
-                    </Border>
+                        <StackPanel
+                            Margin="10"
+                            Padding="5"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Background="#99000000"
+                            CornerRadius="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Width="100" Text="FpsCurrent" />
+                                <TextBlock x:Name="tblFpsCurrent" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Width="100" Text="Video.BitRate" />
+                                <TextBlock x:Name="tblVideoBitRate" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

@@ -23,6 +23,7 @@
                 x:Name="mediaPlayer"
                 IsDecoding="{x:Bind _viewModel.IsDecodeing, Mode=TwoWay}"
                 IsRecording="{x:Bind _viewModel.IsRecording, Mode=TwoWay}"
+                IsShowStats="True"
                 IsStreaming="{x:Bind _viewModel.IsStreaming, Mode=TwoWay}"
                 MediaPlayer="{x:Bind _viewModel.MediaPlayer, Mode=TwoWay}"
                 Url="{x:Bind _viewModel.Url, Mode=OneWay}" />
