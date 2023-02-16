@@ -1,13 +1,13 @@
 ﻿/*
- https://github.com/sipsorcery-org/SIPSorceryMedia.FFmpeg/blob/master/src/FFmpegVideoDecoder.cs
+ * source code from https://github.com/sipsorcery-org/SIPSorceryMedia.FFmpeg/blob/master/src/FFmpegVideoDecoder.cs
  */
 
 using FFmpeg.AutoGen;
+using NetPlayer.FFmpeg.Converter;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 
 namespace NetPlayer.FFmpeg.Decoder
 {
@@ -36,20 +36,29 @@ namespace NetPlayer.FFmpeg.Decoder
         private bool _isClosed;
         private bool _isDisposed;
         private Task? _sourceTask;
+        private Dictionary<string, string>? _decoderOptions;
 
-        private Task? _infoTask;
+        private FrameRateCollector _frameRateCollector;
+
+        private CancellationTokenSource? _ctsForInfoTask;
         private long _framesDisplayed;
         private long _videoBytes;
         public delegate void OnCurrentStatsDelegate(DecodeStats curStats);
         public event OnCurrentStatsDelegate? OnCurStats;
 
+        private CancellationTokenSource? _ctsForReplayWatchDog;
+        private Task? _replayWatchDogTask;
+
         public delegate void OnFrameDelegate(ref AVFrame frame);
         public event OnFrameDelegate? OnVideoFrame;
 
         public event Action? OnEndOfFile;
+        public event Action? OnRestartVideo;
 
         public delegate void SourceErrorDelegate(string errorMessage);
         public event SourceErrorDelegate? OnError;
+
+        private VideoFrameConverter? _videoFrameRGB24Converter = null;
 
         public double VideoAverageFrameRate
         {
@@ -72,6 +81,8 @@ namespace NetPlayer.FFmpeg.Decoder
             _isCamera = isCamera;
 
             _isDisposed = false;
+
+            _frameRateCollector = new FrameRateCollector(90);
         }
 
         private void RaiseError(String err)
@@ -80,7 +91,7 @@ namespace NetPlayer.FFmpeg.Decoder
             OnError?.Invoke(err);
         }
 
-        public unsafe Boolean InitialiseSource(Dictionary<string, string>? decoderOptions = null)
+        public unsafe bool InitialiseSource(Dictionary<string, string>? decoderOptions = null)
         {
             if (!_isInitialised)
             {
@@ -94,10 +105,21 @@ namespace NetPlayer.FFmpeg.Decoder
 
                 if (decoderOptions != null)
                 {
-                    foreach (String key in decoderOptions.Keys)
+                    foreach (var key in decoderOptions.Keys)
                     {
                         if (ffmpeg.av_dict_set(&options, key, decoderOptions[key], 0) < 0)
                             logger.Warn($"Cannot set option [{key}]=[{decoderOptions[key]}]");
+                    }
+
+                    // Backup for restart video.
+                    _decoderOptions = new Dictionary<string, string>(decoderOptions);
+                }
+                else if (_decoderOptions != null)
+                {
+                    foreach (var key in _decoderOptions.Keys)
+                    {
+                        if (ffmpeg.av_dict_set(&options, key, _decoderOptions[key], 0) < 0)
+                            logger.Warn($"Cannot set option [{key}]=[{_decoderOptions[key]}]");
                     }
                 }
 
@@ -174,7 +196,7 @@ namespace NetPlayer.FFmpeg.Decoder
             return true;
         }
 
-        public Boolean StartDecode()
+        public bool StartDecode()
         {
             if (!_isStarted)
             {
@@ -185,16 +207,23 @@ namespace NetPlayer.FFmpeg.Decoder
                     _isStarted = true;
                     _sourceTask = Task.Run(RunDecodeLoop);
 
-                    if (_infoTask == null)
+                    if (_ctsForReplayWatchDog == null)
                     {
-                        _infoTask = Task.Run(DecodeInfoLoop);
+                        _ctsForReplayWatchDog = new CancellationTokenSource();
+                        _replayWatchDogTask = Task.Run(ReplayWatchDogAsync, _ctsForReplayWatchDog.Token);
+                    }
+
+                    if (_ctsForInfoTask == null)
+                    {
+                        _ctsForInfoTask = new CancellationTokenSource();
+                        Task.Run(DecodeInfoLoop, _ctsForInfoTask.Token);
                     }
                 }
             }
             return _isStarted;
         }
 
-        public Boolean Pause()
+        public bool Pause()
         {
             if (!_isClosed)
             {
@@ -203,7 +232,7 @@ namespace NetPlayer.FFmpeg.Decoder
             return _isPaused;
         }
 
-        public Boolean Resume()
+        public bool Resume()
         {
             if (_isPaused && !_isClosed)
             {
@@ -216,6 +245,14 @@ namespace NetPlayer.FFmpeg.Decoder
         {
             _isClosed = true;
 
+            if (_replayWatchDogTask != null)
+            {
+                _ctsForReplayWatchDog?.Cancel();
+                _ctsForReplayWatchDog = null;
+
+                await _replayWatchDogTask;
+            }
+
             if (_sourceTask != null)
             {
                 // The decode loop should finish very quickly one the close is signaled.
@@ -226,7 +263,8 @@ namespace NetPlayer.FFmpeg.Decoder
 
         private void RunDecodeLoop()
         {
-            bool needToRestartVideo = false;
+            bool needToRestartVideo = true;
+
             unsafe
             {
                 AVPacket* pkt = null;
@@ -255,6 +293,7 @@ namespace NetPlayer.FFmpeg.Decoder
                     while (!_isClosed && !_isPaused && canContinue)
                     {
                         error = ffmpeg.av_read_frame(_fmtCtx, pkt);
+
                         if (error < 0)
                         {
                             managePacket = false;
@@ -283,6 +322,7 @@ namespace NetPlayer.FFmpeg.Decoder
 
                                     _framesDisplayed++;
                                     _videoBytes += pkt->size;
+                                    _frameRateCollector.FrameReceived();
 
                                     OnVideoFrame?.Invoke(ref *avFrame);
 
@@ -352,7 +392,10 @@ namespace NetPlayer.FFmpeg.Decoder
                         }
                         else
                         {
-                            OnEndOfFile?.Invoke();
+                            if (_ctsForReplayWatchDog == null || _ctsForReplayWatchDog.IsCancellationRequested)
+                            {
+                                OnEndOfFile?.Invoke();
+                            }
                         }
                     }
                 }
@@ -365,11 +408,20 @@ namespace NetPlayer.FFmpeg.Decoder
                     ffmpeg.av_free(pkt);
                 }
             }
+        }
 
-            if (needToRestartVideo)
+        private async Task ReplayWatchDogAsync()
+        {
+            while (_ctsForReplayWatchDog != null && !_ctsForReplayWatchDog.IsCancellationRequested)
             {
-                Dispose();
-                Task.Run(() => StartDecode());
+                if (_sourceTask!.IsCompleted)
+                {
+                    Dispose();
+                    StartDecode();
+                    OnRestartVideo?.Invoke();
+                }
+
+                await Task.Delay(1000);
             }
         }
 
@@ -424,7 +476,7 @@ namespace NetPlayer.FFmpeg.Decoder
                 {
                     curLoop = 0;
                 }
-            } while (true);
+            } while (_ctsForInfoTask != null && !_ctsForInfoTask.IsCancellationRequested);
         }
 
         public unsafe int GetFrameRate()
@@ -448,6 +500,82 @@ namespace NetPlayer.FFmpeg.Decoder
             return frameRate;
         }
 
+        public int GetFrameRateFromCollector()
+        {
+            if (!_frameRateCollector.FrameRate.HasValue)
+            {
+                return 0;
+            }
+
+            var frameRate = (int)ffmpeg.av_q2d(_frameRateCollector.FrameRate.Value);
+            return frameRate;
+        }
+
+        public unsafe bool SavePng(AVFrame frame, string filePath)
+        {
+            var width = frame.width;
+            var height = frame.height;
+
+            var pOutCodec = ffmpeg.avcodec_find_encoder(AVCodecID.AV_CODEC_ID_PNG);
+            var pOutCodecCtx = ffmpeg.avcodec_alloc_context3(pOutCodec);
+            if (pOutCodecCtx == null)
+            {
+                throw new InvalidOperationException("Failed to allocate encoder context");
+            }
+
+            if (_videoFrameRGB24Converter == null
+                || _videoFrameRGB24Converter.SourceWidth != width
+                || _videoFrameRGB24Converter.SourceHeight != height)
+            {
+                _videoFrameRGB24Converter = new VideoFrameConverter(
+                    width, height,
+                    (AVPixelFormat)frame.format,
+                    width, height,
+                    AVPixelFormat.AV_PIX_FMT_RGB24);
+            }
+
+            var frameRGB24 = _videoFrameRGB24Converter.Convert(frame);
+            if ((frameRGB24.width != 0) && (frameRGB24.height != 0))
+            {
+                try
+                {
+                    pOutCodecCtx->width = width;
+                    pOutCodecCtx->height = height;
+                    pOutCodecCtx->pix_fmt = AVPixelFormat.AV_PIX_FMT_RGB24;
+                    pOutCodecCtx->time_base = new AVRational { den = 1, num = 1 };
+
+                    if (ffmpeg.avcodec_open2(pOutCodecCtx, pOutCodec, null) < 0)
+                    {
+                        return false;
+                    }
+
+                    var pOutPacket = ffmpeg.av_packet_alloc();
+
+                    try
+                    {
+                        ffmpeg.av_packet_unref(pOutPacket);
+
+                        ffmpeg.avcodec_send_frame(pOutCodecCtx, &frameRGB24);
+                        ffmpeg.avcodec_receive_packet(pOutCodecCtx, pOutPacket);
+
+                        using var output = File.Create(filePath);
+                        var data = new ReadOnlySpan<byte>(pOutPacket->data, pOutPacket->size);
+                        output.Write(data);
+                    }
+                    finally
+                    {
+                        ffmpeg.av_packet_free(&pOutPacket);
+                    }
+                }
+                finally
+                {
+                    ffmpeg.avcodec_free_context(&pOutCodecCtx);
+                }
+            }
+
+            return true;
+        }
+
         public void Dispose()
         {
             if (_isInitialised && !_isDisposed)
@@ -460,6 +588,9 @@ namespace NetPlayer.FFmpeg.Decoder
                 logger.Debug("Disposing of FFmpegVideoDecoder.");
                 unsafe
                 {
+                    _ctsForInfoTask?.Cancel();
+                    _ctsForInfoTask = null;
+
                     try
                     {
                         if (_vidDecCtx != null)

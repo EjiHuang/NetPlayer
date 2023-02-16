@@ -14,6 +14,7 @@ namespace NetPlayer.FFmpeg.Encoder
 
         private string? _formatName;
         private string _url;
+        public string Url => _url;
 
         private bool _isEncoderInitialised = false;
 
@@ -88,6 +89,7 @@ namespace NetPlayer.FFmpeg.Encoder
 
                 if (_codecID == AVCodecID.AV_CODEC_ID_H264)
                 {
+                    // 高版本的ffmpeg中会失败
                     ffmpeg.av_opt_set(_pEncoderContext->priv_data, "preset", "ultrafast", 0);
                     ffmpeg.av_opt_set(_pEncoderContext->priv_data, "tune", "zerolatency", 0);
                 }
@@ -112,7 +114,11 @@ namespace NetPlayer.FFmpeg.Encoder
                 // 创建并初始化AVIOContext
                 if (ffmpeg.avio_open(&pFormatContext->pb, _url, ffmpeg.AVIO_FLAG_WRITE) < 0)
                 {
-                    Debug.WriteLine("Failed to open output file. It could be a video stream.");
+                    ffmpeg.avformat_close_input(&pFormatContext);
+                    ffmpeg.avcodec_close(_pEncoderContext);
+                    ffmpeg.av_free(_pEncoderContext);
+
+                    throw new Exception("Encoder avio_open exception");
                 }
 
                 // 配置选项

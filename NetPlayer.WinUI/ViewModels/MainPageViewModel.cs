@@ -5,6 +5,7 @@ using NetPlayer.WinUI.Controls;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -32,14 +33,19 @@ namespace NetPlayer.WinUI.ViewModels
         [ObservableProperty]
         bool isStreaming;
 
+        [ObservableProperty]
+        RtspTransport rtspTransport;
+
         public MainPageViewModel()
         {
             _contentDialogService = App.Current.Services.GetRequiredService<ContentDialogService>();
 
             Urls = new ObservableCollection<string>
             {
-                "rtsp://admin:SGZHTF@192.168.50.129:554/h264/ch1/main/av_stream",
+                "rtmp://127.0.0.1/live/stream1",
                 "rtsp://admin:admin12345@192.168.1.239:554/h264/ch1/main/av_stream",
+                "rtsp://192.168.1.100:554/stream0",
+                "rtsp://admin:SGZHTF@192.168.50.129:554/h264/ch1/main/av_stream",
                 "rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mp4"
             };
         }
@@ -64,6 +70,33 @@ namespace NetPlayer.WinUI.ViewModels
         }
 
         [RelayCommand]
+        private async Task SavePngAsync()
+        {
+            if (MediaPlayer != null)
+            {
+                var savePicker = new FileSavePicker
+                {
+                    SuggestedStartLocation = PickerLocationId.VideosLibrary,
+                    SuggestedFileName = DateTime.Now.ToString("yyyy_MM_dd_HH_mm_ss")
+                };
+                savePicker.FileTypeChoices.Add("PNG", new List<string> { ".png" });
+                InitializeWithWindow.Initialize(savePicker, App.Current.MainWindow.Hwnd);
+
+                var file = await savePicker.PickSaveFileAsync();
+                if (file == null)
+                {
+                    return;
+                }
+
+                var result = await MediaPlayer.SavePngAsync(file.Path);
+
+                Debug.WriteLineIf(result, $"Saved frame to {file.Path}.");
+
+                //var result = await MediaPlayer.SavePngAsync(@"c:/1.png");
+            }
+        }
+
+        [RelayCommand]
         private async void Streaming()
         {
             if (MediaPlayer != null)
@@ -71,14 +104,15 @@ namespace NetPlayer.WinUI.ViewModels
                 if (!isStreaming)
                 {
                     var url = await _contentDialogService.InputStringDialog("Streaming url:", "rtmp://127.0.0.1/live/stream0");
+                    
                     if (!string.IsNullOrEmpty(url))
                     {
-                        MediaPlayer.Push(url);
+                        await MediaPlayer.PushAsync(url);
                     }
                 }
                 else
                 {
-                    MediaPlayer?.StopPush();
+                    await MediaPlayer.StopPushAsync();
                 }
             }
         }
@@ -103,11 +137,13 @@ namespace NetPlayer.WinUI.ViewModels
                     {
                         return;
                     }
-                    
+
                     if (!string.IsNullOrEmpty(url))
                     {
                         MediaPlayer.Record(file.Path);
                     }
+
+                    //MediaPlayer.Record(@"C:\Users\EjiHuang\Desktop\h265.ts");
                 }
                 else
                 {

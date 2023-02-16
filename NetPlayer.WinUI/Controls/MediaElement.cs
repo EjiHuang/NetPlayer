@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Data;
 using NetPlayer.FFmpeg.Converter;
 using NetPlayer.FFmpeg.Decoder;
 using NetPlayer.FFmpeg.Encoder;
+using NetPlayer.FFmpeg.Util;
 using NetPlayer.WinUI.Win2D;
 using SIPSorceryMedia.Abstractions;
 using System;
@@ -27,9 +28,16 @@ using Windows.Graphics.DirectX;
 
 namespace NetPlayer.WinUI.Controls
 {
+    public enum RtspTransport
+    {
+        TCP, UDP
+    }
+
     public sealed class MediaElement : Control
     {
         private static readonly object _lockobj = new object();
+        private AsyncAutoResetEvent _autoResetEventForSavePng = new(false);
+
         private CanvasControl? _canvas;
         private CanvasBitmap? _bitmap;
 
@@ -41,10 +49,14 @@ namespace NetPlayer.WinUI.Controls
         private readonly ConcurrentQueue<AVFrame> _encodeVideoStreamQueue = new();
         private CancellationTokenSource? _ctsForPush;
         private FFmpegStreamEncoder? _streamEncoder;
+        private Task? _pushTask;
 
         private readonly ConcurrentQueue<AVFrame> _encodeVideoFileQueue = new();
         private CancellationTokenSource? _ctsForRecord;
         private FFmpegVideoEncoder? _videoEncoder;
+
+        private bool _savePngRequest;
+        private string? _savePngPath;
 
         public MediaElement()
         {
@@ -96,7 +108,7 @@ namespace NetPlayer.WinUI.Controls
                 Source = this,
                 Mode = BindingMode.OneWay,
                 Converter = new StringFormatConverter(),
-                ConverterParameter = "{0:f0} Kbps"
+                ConverterParameter = "{0:f1} Kbps"
             });
         }
 
@@ -115,12 +127,29 @@ namespace NetPlayer.WinUI.Controls
                     unsafe
                     {
                         _videoDecoder = new FFmpegVideoDecoder(url, null);
-                        var ret = _videoDecoder.InitialiseSource(new Dictionary<string, string>
+
+                        var opts = new Dictionary<string, string>();
+
+                        if (url.ToLower().StartsWith("rtmp"))
                         {
-                            { "timeout", "5000000" },
-                            { "fflags", "nobuffer" },
-                            { "rtsp_transport", "tcp" },
-                        });
+                            //opts.Add("probesize", "1024");
+                            opts.Add("fflags", "nobuffer");
+                            opts.Add("rw_timeout", "5000000");
+                        }
+
+                        if (url.ToLower().StartsWith("udp"))
+                        {
+                            opts.Add("timeout", "5000000");
+                        }
+
+                        if (url.ToLower().StartsWith("rtsp"))
+                        {
+                            opts.Add("fflags", "nobuffer");
+                            opts.Add("timeout", "5000000");
+                            opts.Add("rtsp_transport", "tcp");
+                        }
+
+                        var ret = _videoDecoder.InitialiseSource(opts);
 
                         if (ret == false)
                         {
@@ -131,6 +160,7 @@ namespace NetPlayer.WinUI.Controls
                         _videoDecoder.OnVideoFrame += OnVideoFrame;
                         _videoDecoder.OnCurStats += OnCurStats;
                         _videoDecoder.OnEndOfFile += OnEndOfFile;
+                        _videoDecoder.OnRestartVideo += OnRestartVideo;
                         _videoDecoder.OnError += OnError;
 
                         return true;
@@ -139,6 +169,14 @@ namespace NetPlayer.WinUI.Controls
             }
 
             return false;
+        }
+
+        public async Task<bool> SavePngAsync(string filePath)
+        {
+            _savePngPath = filePath;
+            _savePngRequest = true;
+
+            return IsDecoding && await _autoResetEventForSavePng.WaitAsync(TimeSpan.FromMilliseconds(500));
         }
 
         private void OnCurStats(DecodeStats curStats)
@@ -181,9 +219,14 @@ namespace NetPlayer.WinUI.Controls
                                 if (_videoDecoder != null && frameRate == 0)
                                 {
                                     frameRate = _videoDecoder.GetFrameRate();
-                                    if (frameRate == 0)
+                                    if (frameRate == 0 || frameRate == 90000)
                                     {
-                                        frameRate = 25;
+                                        frameRate = _videoDecoder.GetFrameRateFromCollector();
+                                        if (frameRate == 0)
+                                        {
+                                            Thread.Sleep(1);
+                                            continue;
+                                        }
                                     }
 
                                     Debug.WriteLine("[Media Player] " + $"Encode frame rate = {frameRate}.");
@@ -243,13 +286,26 @@ namespace NetPlayer.WinUI.Controls
             }
         }
 
-        public void Push(string url)
+        public async Task PushAsync(string url)
         {
+            if (IsStreaming == true && url != _streamEncoder?.Url)
+            {
+                await StopPushAsync();
+            }
+
+            if (IsStreaming == true && url == _streamEncoder?.Url)
+            {
+                return;
+            }
+
             _ctsForPush = new CancellationTokenSource();
             IsStreaming = true;
 
-            Task.Run(() =>
+            _pushTask = Task.Run(() =>
             {
+            Repeat:
+                var re = false;
+
                 try
                 {
                     _streamEncoder = new FFmpegStreamEncoder(url);
@@ -258,7 +314,7 @@ namespace NetPlayer.WinUI.Controls
 
                     while (_ctsForPush != null && !_ctsForPush.IsCancellationRequested)
                     {
-                        if (_encodeVideoStreamQueue.TryDequeue(out var frame))
+                        if (_encodeVideoStreamQueue != null && _encodeVideoStreamQueue.TryDequeue(out var frame))
                         {
                             var width = frame.width;
                             var height = frame.height;
@@ -268,9 +324,14 @@ namespace NetPlayer.WinUI.Controls
                             if (_videoDecoder != null && frameRate == 0)
                             {
                                 frameRate = _videoDecoder.GetFrameRate();
-                                if (frameRate == 0)
+                                if (frameRate == 0 || frameRate == 90000)
                                 {
-                                    frameRate = 25;
+                                    frameRate = _videoDecoder.GetFrameRateFromCollector();
+                                    if (frameRate == 0)
+                                    {
+                                        Thread.Sleep(1);
+                                        continue;
+                                    }
                                 }
 
                                 Debug.WriteLine("[Media Player] " + $"Encode frame rate = {frameRate}.");
@@ -284,9 +345,9 @@ namespace NetPlayer.WinUI.Controls
                             lock (_lockobj)
                             {
                                 var convertedFrame = _encoderPixelConverter.Convert(frame);
-                                convertedFrame.pts = frameNumber;
+                                //convertedFrame.pts = frameNumber;
 
-                                _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, frameRate: 0);
+                                _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, frameRate: frameRate);
                             }
 
                             frameNumber++;
@@ -300,6 +361,19 @@ namespace NetPlayer.WinUI.Controls
                 catch (Exception ex)
                 {
                     Debug.WriteLine("[Media Player] " + ex.ToString());
+
+                    if (ex.Message == "Error number -10053 occurred")
+                    {
+                        // Try to re-push
+                        re = true;
+                    }
+                    else
+                    {
+                        _encodeVideoStreamQueue?.Clear();
+                        DispatcherQueue.TryEnqueue(() => { IsStreaming = false; });
+
+                        return;
+                    }
                 }
 
                 // Dispose
@@ -308,19 +382,31 @@ namespace NetPlayer.WinUI.Controls
 
                 _encodeVideoStreamQueue?.Clear();
 
+                if (re)
+                {
+                    Debug.WriteLine("[Media Player] " + "The Steaming is abnormal, and the stream will be pushed again after 2 seconds.");
+
+                    Thread.Sleep(2000);
+                    re = false;
+
+                    goto Repeat;
+                }
+
                 Debug.WriteLine("[Media Player] " + "End of streaming.");
                 DispatcherQueue.TryEnqueue(() => { IsStreaming = false; });
 
             }, _ctsForPush.Token);
         }
 
-        public void StopPush()
+        public async Task StopPushAsync()
         {
             try
             {
                 _ctsForPush?.Cancel();
                 _ctsForPush = null;
 
+                if (_pushTask != null)
+                    await _pushTask;
                 IsStreaming = false;
             }
             catch (Exception ex)
@@ -340,11 +426,16 @@ namespace NetPlayer.WinUI.Controls
             DispatcherQueue.TryEnqueue(() => { IsDecoding = false; });
         }
 
+        private void OnRestartVideo()
+        {
+            Debug.WriteLine("[Media Player] Restarted video.");
+            DispatcherQueue.TryEnqueue(() => { IsDecoding = true; });
+        }
+
         private unsafe void OnVideoFrame(ref AVFrame frame)
         {
             if (_videoDecoder != null)
             {
-                var frameRate = (int)_videoDecoder.VideoAverageFrameRate;
                 var timestampDuration = (uint)_videoDecoder.VideoFrameSpace;
 
                 var width = frame.width;
@@ -376,6 +467,16 @@ namespace NetPlayer.WinUI.Controls
 
                     _bitmap = CanvasBitmap.CreateFromBytes(CanvasDevice.GetSharedDevice(), rawImage.GetBuffer(), rawImage.Width, rawImage.Height, DirectXPixelFormat.B8G8R8A8UIntNormalized);
                     _canvas?.Invalidate();
+
+                    // Save png
+                    if (_savePngRequest && !string.IsNullOrEmpty(_savePngPath))
+                    {
+                        _savePngRequest = false;
+
+                        _videoDecoder.SavePng(frameBGRA32, _savePngPath);
+
+                        _autoResetEventForSavePng.Set();
+                    }
 
                     // 如果启动了编码器，则将转换好的视频帧用于视频编码
                     if ((_ctsForRecord != null && !_ctsForRecord.IsCancellationRequested))

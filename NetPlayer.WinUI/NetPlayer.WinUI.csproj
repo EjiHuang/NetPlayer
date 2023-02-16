@@ -3,32 +3,32 @@
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net6.0-windows10.0.19041.0</TargetFramework>
 		<TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
-		
+
 		<RootNamespace>NetPlayer.WinUI</RootNamespace>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 		<Platforms>x86;x64;ARM64</Platforms>
-		
+
 		<RuntimeIdentifiers>win10-x86;win10-x64;win10-arm64</RuntimeIdentifiers>
 		<PublishProfile>win10-$(Platform).pubxml</PublishProfile>
-		
+
 		<UseWinUI>true</UseWinUI>
 		<EnableMsixTooling>true</EnableMsixTooling>
 		<WindowsPackageType>None</WindowsPackageType>
 		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-		
+
 		<LangVersion>10.0</LangVersion>
-		
+
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
 	<ItemGroup>
-	  <Compile Remove="FFmpeg\**" />
-	  <EmbeddedResource Remove="FFmpeg\**" />
-	  <None Remove="FFmpeg\**" />
-	  <Page Remove="FFmpeg\**" />
+		<Compile Remove="FFmpeg\**" />
+		<EmbeddedResource Remove="FFmpeg\**" />
+		<None Remove="FFmpeg\**" />
+		<Page Remove="FFmpeg\**" />
 	</ItemGroup>
 	<ItemGroup>
-	  <None Remove="Pages\MainPage.xaml" />
+		<None Remove="Pages\MainPage.xaml" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -63,9 +63,9 @@
 		<ProjectCapability Include="Msix" />
 	</ItemGroup>
 	<ItemGroup>
-	  <Page Update="Pages\MainPage.xaml">
-	    <Generator>MSBuild:Compile</Generator>
-	  </Page>
+		<Page Update="Pages\MainPage.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</Page>
 	</ItemGroup>
 
 	<!-- 
@@ -77,9 +77,38 @@
 		<HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
 	</PropertyGroup>
 	<ItemGroup>
-	  <PRIResource Remove="FFmpeg\**" />
+		<PRIResource Remove="FFmpeg\**" />
 	</ItemGroup>
 	<ItemGroup>
-	  <ProjectReference Include="..\NetPlayer.FFmpeg\NetPlayer.FFmpeg.csproj" />
+	  <Page Remove="Converters\ConverterDictionary.xaml" />
 	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\NetPlayer.FFmpeg\NetPlayer.FFmpeg.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+	  <None Update="Converters\ConverterDictionary.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </None>
+	</ItemGroup>
+
+	<!-- This target will remove language folders inside the output directory except a specified one. -->
+	<Target Name="RemoveFoldersWithMuiFiles" AfterTargets="Build">
+		<ItemGroup>
+			<!-- Create a list of the languages your need to keep.-->
+			<KeepingLanguages Include="en-US;zh-CN" />
+			<!-- Create a list of keeping files. -->
+			<KeepingFiles Include="@(KeepingLanguages->'$(OutDir)%(Identity)\*.mui')" />
+			<!-- Create a list of removing files. -->
+			<RemovingFiles Include="$(OutDir)*\*.mui" Exclude="@(KeepingFiles)" />
+			<!-- Create a list of removing folders. -->
+			<RemovingFolders Include="@(RemovingFiles->'%(RootDir)%(Directory)')" />
+		</ItemGroup>
+		<!-- Uncomment these messages if you need to check each list.
+			<Message Text="Keeping languages: @(KeepingLanguages)" Importance="High" />
+			<Message Text="Keeping files:     @(KeepingFiles)" Importance="High" />
+			<Message Text="Removing files:    @(RemovingFiles)" Importance="High" />
+		-->
+		<!-- Execute RemoveDir command and remove all folders in "RemovingFolders".-->
+		<RemoveDir Directories="@(RemovingFolders)" />
+	</Target>
 </Project>
