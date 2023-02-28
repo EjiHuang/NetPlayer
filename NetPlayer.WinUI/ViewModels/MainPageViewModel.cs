@@ -42,9 +42,9 @@ namespace NetPlayer.WinUI.ViewModels
 
             Urls = new ObservableCollection<string>
             {
+                "rtsp://192.168.1.100:554/stream0",
                 "rtmp://127.0.0.1/live/stream1",
                 "rtsp://admin:admin12345@192.168.1.239:554/h264/ch1/main/av_stream",
-                "rtsp://192.168.1.100:554/stream0",
                 "rtsp://admin:SGZHTF@192.168.50.129:554/h264/ch1/main/av_stream",
                 "rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mp4"
             };
@@ -104,6 +104,7 @@ namespace NetPlayer.WinUI.ViewModels
                 if (!isStreaming)
                 {
                     var url = await _contentDialogService.InputStringDialog("Streaming url:", "rtmp://127.0.0.1/live/stream0");
+                    //var url = await _contentDialogService.InputStringDialog("Streaming url:", "rtmp://192.168.4.11/live/stream0");
                     
                     if (!string.IsNullOrEmpty(url))
                     {
@@ -143,11 +144,32 @@ namespace NetPlayer.WinUI.ViewModels
                         MediaPlayer.Record(file.Path);
                     }
 
-                    //MediaPlayer.Record(@"C:\Users\EjiHuang\Desktop\h265.ts");
+                    //MediaPlayer.Record(@"C:\Users\EjiHuang\Desktop\h264.ts");
                 }
                 else
                 {
                     MediaPlayer.StopRecord();
+                }
+            }
+        }
+
+        internal async Task DisposeAsync()
+        {
+            if (MediaPlayer != null)
+            {
+                if (IsStreaming)
+                {
+                    await MediaPlayer.StopPushAsync();
+                }
+
+                if (IsRecording)
+                {
+                    MediaPlayer.StopRecord();
+                }
+
+                if (IsDecodeing)
+                {
+                    await MediaPlayer.StopAsync();
                 }
             }
         }

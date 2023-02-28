@@ -14,6 +14,7 @@ namespace NetPlayer.FFmpeg.Encoder
 
         private string _fileName;
         private bool _isEncoderInitialised = false;
+        public bool IsEncoderInitialised => _isEncoderInitialised;
 
         public FFmpegVideoEncoder(string fileName)
         {
@@ -137,18 +138,19 @@ namespace NetPlayer.FFmpeg.Encoder
             {
                 var error = 0;
 
-                // 向输出编码器上下文提供原始视频帧
-                ffmpeg.avcodec_send_frame(_pEncoderContext, &uncompressedFrame).ThrowExceptionIfError();
-
                 do
                 {
+                    // 向输出编码器上下文提供原始视频帧
+                    ffmpeg.avcodec_send_frame(_pEncoderContext, &uncompressedFrame).ThrowExceptionIfError();
+
                     // 从输出编码器上下文中读取编码好的数据包
                     error = ffmpeg.avcodec_receive_packet(_pEncoderContext, pPacket);
 
-                    ffmpeg.av_packet_rescale_ts(pPacket, _pEncoderContext->time_base, _pFormatContext->streams[pPacket->stream_index]->time_base);
-                    ffmpeg.av_interleaved_write_frame(_pFormatContext, pPacket).ThrowExceptionIfError();
-
                 } while (error == ffmpeg.AVERROR(ffmpeg.EAGAIN) || error == ffmpeg.AVERROR(ffmpeg.AVERROR_EOF));
+
+                ffmpeg.av_packet_rescale_ts(pPacket, _pEncoderContext->time_base, _pFormatContext->streams[pPacket->stream_index]->time_base);
+                pPacket->stream_index = _pStream->index;
+                ffmpeg.av_interleaved_write_frame(_pFormatContext, pPacket).ThrowExceptionIfError();
             }
             finally
             {
@@ -162,12 +164,17 @@ namespace NetPlayer.FFmpeg.Encoder
             try
             {
                 var pFormatContext = _pFormatContext;
+                if (pFormatContext != null)
+                {
+                    ffmpeg.av_write_trailer(pFormatContext);
+                    ffmpeg.avformat_close_input(&pFormatContext);
+                }
 
-                ffmpeg.av_write_trailer(pFormatContext);
-                ffmpeg.avformat_close_input(&pFormatContext);
-
-                ffmpeg.avcodec_close(_pEncoderContext);
-                ffmpeg.av_free(_pEncoderContext);
+                if (_pEncoderContext != null)
+                {
+                    ffmpeg.avcodec_close(_pEncoderContext);
+                    ffmpeg.av_free(_pEncoderContext);
+                }
             }
             catch (Exception ex)
             {

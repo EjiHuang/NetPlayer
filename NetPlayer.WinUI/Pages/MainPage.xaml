@@ -21,7 +21,7 @@
             <RowDefinition Height="auto" />
         </Grid.RowDefinitions>
         <Grid Grid.Row="0">
-            <MenuBar>
+            <MenuBar Visibility="Collapsed">
                 <MenuBar.Resources>
                     <cv:ComparisonConverter x:Key="ComparisonConverter" />
                 </MenuBar.Resources>

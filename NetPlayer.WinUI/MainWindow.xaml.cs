@@ -4,7 +4,9 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Runtime.InteropServices;
 using Windows.Graphics;
 using WinRT.Interop;
 
@@ -39,9 +41,44 @@ namespace NetPlayer.WinUI
             Title = WindowTitle;
 
             Hwnd = WindowNative.GetWindowHandle(this);
+            SubClassDelegate = new SUBCLASSPROC(WindowSubClass);
+            bool bReturn = SetWindowSubclass(Hwnd, SubClassDelegate, 0, 0);
+
             var windowId = Win32Interop.GetWindowIdFromWindow(Hwnd);
             _appWindow = AppWindow.GetFromWindowId(windowId);
             _appWindow.ResizeClient(new SizeInt32(StartupWidth, StartupHeight));
         }
+
+        private int WindowSubClass(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, uint dwRefData)
+        {
+            switch (uMsg)
+            {
+                case WM_CLOSE:
+                    {
+                        Quit();
+                        return 0;
+                    }
+            }
+            return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+        }
+
+        private async void Quit()
+        {
+            await mainPage.DisposeAsync();
+
+            Close();
+        }
+
+        public delegate int SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, uint dwRefData);
+
+        [DllImport("Comctl32.dll", SetLastError = true)]
+        public static extern bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass, uint uIdSubclass, uint dwRefData);
+
+        [DllImport("Comctl32.dll", SetLastError = true)]
+        public static extern int DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+
+        public const int WM_CLOSE = 0x0010;
+
+        private SUBCLASSPROC? SubClassDelegate;
     }
 }

@@ -53,7 +53,11 @@ namespace NetPlayer.FFmpeg
                 var printPrefix = 1;
                 ffmpeg.av_log_format_line(ptr, level, format, vl, pLineData, lineData.Length, &printPrefix);
                 var line = Marshal.PtrToStringAnsi((IntPtr)pLineData);
-                Debug.Write(line);
+
+                if (line != null && !line.Contains("SEI"))
+                {
+                    Debug.Write(line);
+                }
             }
         }
 

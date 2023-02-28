@@ -111,22 +111,36 @@ namespace NetPlayer.FFmpeg.Encoder
                 // 输出一些信息
                 ffmpeg.av_dump_format(pFormatContext, 0, _url, 1);
 
-                // 创建并初始化AVIOContext
-                if (ffmpeg.avio_open(&pFormatContext->pb, _url, ffmpeg.AVIO_FLAG_WRITE) < 0)
+                // 创建并初始化AVIOContext，RTSP协议视频流不需要执行avio_open
+                if (_url.ToLower().StartsWith("rtsp") == false)
                 {
-                    ffmpeg.avformat_close_input(&pFormatContext);
-                    ffmpeg.avcodec_close(_pEncoderContext);
-                    ffmpeg.av_free(_pEncoderContext);
+                    AVDictionary* formatOptions = null;
+                    ffmpeg.av_dict_set(&formatOptions, "rw_timeout", "1000000", 0);
+                    if (ffmpeg.avio_open2(&pFormatContext->pb, _url, ffmpeg.AVIO_FLAG_WRITE, null, &formatOptions) < 0)
+                    {
+                        ffmpeg.avformat_close_input(&pFormatContext);
+                        ffmpeg.avcodec_close(_pEncoderContext);
+                        ffmpeg.av_free(_pEncoderContext);
 
-                    throw new Exception("Encoder avio_open exception");
+                        throw new Exception("Encoder avio_open exception");
+                    }
                 }
 
                 // 配置选项
                 AVDictionary* options = null;
                 if (_formatName == "rtsp")
                 {
+                    ffmpeg.av_dict_set(&options, "timeout", "5000000", 0);
                     ffmpeg.av_dict_set(&options, "rtsp_transport", "tcp", 0);
                     ffmpeg.av_dict_set(&options, "profile", "baseline", 0);
+                }
+                else if (_formatName == "udp")
+                {
+                    ffmpeg.av_dict_set(&options, "timeout", "5000000", 0);
+                }
+                else if (_formatName == "rtmp")
+                {
+                    ffmpeg.av_dict_set(&options, "rw_timeout", "5000000", 0);
                 }
 
                 ffmpeg.avformat_write_header(pFormatContext, &options).ThrowExceptionIfError();
@@ -153,24 +167,33 @@ namespace NetPlayer.FFmpeg.Encoder
             {
                 throw new ArgumentException("Invalid pixel format.", nameof(uncompressedFrame));
             }
+
             var pPacket = ffmpeg.av_packet_alloc();
 
             try
             {
                 var error = 0;
 
-                // 向输出编码器上下文提供原始视频帧
-                ffmpeg.avcodec_send_frame(_pEncoderContext, &uncompressedFrame).ThrowExceptionIfError();
-
                 do
                 {
+                    // 向输出编码器上下文提供原始视频帧
+                    ffmpeg.avcodec_send_frame(_pEncoderContext, &uncompressedFrame).ThrowExceptionIfError();
+
                     // 从输出编码器上下文中读取编码好的数据包
                     error = ffmpeg.avcodec_receive_packet(_pEncoderContext, pPacket);
 
-                    ffmpeg.av_packet_rescale_ts(pPacket, _pEncoderContext->time_base, _pFormatContext->streams[pPacket->stream_index]->time_base);
-                    ffmpeg.av_interleaved_write_frame(_pFormatContext, pPacket).ThrowExceptionIfError();
-
                 } while (error == ffmpeg.AVERROR(ffmpeg.EAGAIN) || error == ffmpeg.AVERROR(ffmpeg.AVERROR_EOF));
+
+                ffmpeg.av_packet_rescale_ts(pPacket, _pEncoderContext->time_base, _pFormatContext->streams[pPacket->stream_index]->time_base);
+                pPacket->stream_index = _pStream->index;
+                //Debug.WriteLine($"Encoded packet pts {pPacket->pts}, dts {pPacket->dts}, size {pPacket->size}.");
+
+                //Stopwatch sw = Stopwatch.StartNew();
+
+                ffmpeg.av_interleaved_write_frame(_pFormatContext, pPacket).ThrowExceptionIfError();
+                //ffmpeg.av_write_frame(_pFormatContext, pPacket).ThrowExceptionIfError();
+
+                //Debug.WriteLine($"write frame:{sw.ElapsedMilliseconds}ms");
             }
             finally
             {
@@ -210,11 +233,17 @@ namespace NetPlayer.FFmpeg.Encoder
             {
                 var pFormatContext = _pFormatContext;
 
-                ffmpeg.av_write_trailer(pFormatContext);
-                ffmpeg.avformat_close_input(&pFormatContext);
+                if (pFormatContext != null)
+                {
+                    ffmpeg.av_write_trailer(pFormatContext);
+                    ffmpeg.avformat_close_input(&pFormatContext);
+                }
 
-                ffmpeg.avcodec_close(_pEncoderContext);
-                ffmpeg.av_free(_pEncoderContext);
+                if (_pEncoderContext != null)
+                {
+                    ffmpeg.avcodec_close(_pEncoderContext);
+                    ffmpeg.av_free(_pEncoderContext);
+                }
             }
             catch (Exception ex)
             {

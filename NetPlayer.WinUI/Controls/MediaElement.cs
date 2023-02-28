@@ -142,12 +142,17 @@ namespace NetPlayer.WinUI.Controls
                             opts.Add("timeout", "5000000");
                         }
 
+
                         if (url.ToLower().StartsWith("rtsp"))
                         {
                             opts.Add("fflags", "nobuffer");
                             opts.Add("timeout", "5000000");
-                            opts.Add("rtsp_transport", "tcp");
+                            opts.Add("rtsp_flags", "prefer_tcp");
+                            //opts.Add("rtsp_transport", "udp");
                         }
+
+                        // 是否设置缓冲区大小?
+                        //opts.Add("buffer_size", 1024);
 
                         var ret = _videoDecoder.InitialiseSource(opts);
 
@@ -194,6 +199,8 @@ namespace NetPlayer.WinUI.Controls
         public void Record(string filePath)
         {
             var ext = Path.GetExtension(filePath);
+            var partNum = 0;
+
             if (ext != null && ext == ".ts")
             {
                 _ctsForRecord = new CancellationTokenSource();
@@ -206,6 +213,7 @@ namespace NetPlayer.WinUI.Controls
                         _videoEncoder = new FFmpegVideoEncoder(filePath);
                         var frameNumber = 0;
                         var frameRate = 0;
+                        var curTicks = DateTime.UtcNow.Ticks;
 
                         while (_ctsForRecord != null && !_ctsForRecord.IsCancellationRequested)
                         {
@@ -240,7 +248,34 @@ namespace NetPlayer.WinUI.Controls
                                 lock (_lockobj)
                                 {
                                     var convertedFrame = _encoderPixelConverter.Convert(frame);
+
+                                    if (DateTime.UtcNow.Ticks - curTicks > 10000000.0)
+                                    {
+                                        Debug.WriteLine($"[Media Player] Steaming timeout {(DateTime.UtcNow.Ticks - curTicks) / 10000000.0}s, rebuilding the steam encoder.");
+
+                                        frameNumber = 0;
+
+                                        var fileName = Path.GetFileName(filePath);
+                                        if (_videoEncoder.IsEncoderInitialised == false)
+                                        {
+                                            // Do nothing.
+                                        }
+                                        else if (fileName.Contains($"-part{partNum}"))
+                                        {
+                                            filePath = Path.Combine(Path.GetDirectoryName(filePath)!, fileName.Replace($"-part{partNum}", $"-part{++partNum}"));
+                                        }
+                                        else
+                                        {
+                                            filePath = filePath.Insert(filePath.LastIndexOf(".ts"), $"-part{++partNum}");
+                                        }
+
+                                        // Dispose
+                                        _videoEncoder?.Dispose();
+                                        _videoEncoder = new FFmpegVideoEncoder(filePath);
+                                    }
+
                                     convertedFrame.pts = frameNumber;
+                                    curTicks = DateTime.UtcNow.Ticks;
 
                                     _videoEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, frameRate: frameRate);
                                 }
@@ -265,7 +300,7 @@ namespace NetPlayer.WinUI.Controls
                     _encodeVideoFileQueue?.Clear();
 
                     Debug.WriteLine("[Media Player] " + "End of record.");
-                    DispatcherQueue.TryEnqueue(() => { IsRecording = false; });
+                    DispatcherQueue?.TryEnqueue(() => { IsRecording = false; });
 
                 }, _ctsForRecord.Token);
             }
@@ -308,9 +343,13 @@ namespace NetPlayer.WinUI.Controls
 
                 try
                 {
-                    _streamEncoder = new FFmpegStreamEncoder(url);
+                    unsafe
+                    {
+                        _streamEncoder = new FFmpegStreamEncoder(url);
+                    }
                     var frameNumber = 0;
                     var frameRate = 0;
+                    var curTicks = DateTime.UtcNow.Ticks;
 
                     while (_ctsForPush != null && !_ctsForPush.IsCancellationRequested)
                     {
@@ -318,6 +357,7 @@ namespace NetPlayer.WinUI.Controls
                         {
                             var width = frame.width;
                             var height = frame.height;
+                            
                             var srcPixelFormat = AVPixelFormat.AV_PIX_FMT_BGR0;
                             var dstPixelFormat = AVPixelFormat.AV_PIX_FMT_YUV420P;  // For H264
 
@@ -345,9 +385,31 @@ namespace NetPlayer.WinUI.Controls
                             lock (_lockobj)
                             {
                                 var convertedFrame = _encoderPixelConverter.Convert(frame);
-                                //convertedFrame.pts = frameNumber;
 
-                                _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, frameRate: frameRate);
+                                if (DateTime.UtcNow.Ticks - curTicks > 10000000.0)
+                                {
+                                    Debug.WriteLine($"[Media Player] Steaming timeout {(DateTime.UtcNow.Ticks - curTicks) / 10000000.0}s, rebuilding the steam encoder.");
+
+                                    frameNumber = 0;
+
+                                    // Dispose
+                                    _streamEncoder?.Dispose();
+                                    unsafe
+                                    {
+                                        _streamEncoder = new FFmpegStreamEncoder(url);
+                                    }
+                                }
+
+                                convertedFrame.pts = frameNumber;
+                                curTicks = DateTime.UtcNow.Ticks;
+
+                                unsafe
+                                {
+                                    if (_videoDecoder != null)
+                                    {
+                                        _streamEncoder.TryEncodeNextPacket(convertedFrame, AVCodecID.AV_CODEC_ID_H264, frameRate: frameRate);
+                                    }
+                                }
                             }
 
                             frameNumber++;
@@ -370,7 +432,7 @@ namespace NetPlayer.WinUI.Controls
                     else
                     {
                         _encodeVideoStreamQueue?.Clear();
-                        DispatcherQueue.TryEnqueue(() => { IsStreaming = false; });
+                        DispatcherQueue?.TryEnqueue(() => { IsStreaming = false; });
 
                         return;
                     }
@@ -393,7 +455,7 @@ namespace NetPlayer.WinUI.Controls
                 }
 
                 Debug.WriteLine("[Media Player] " + "End of streaming.");
-                DispatcherQueue.TryEnqueue(() => { IsStreaming = false; });
+                DispatcherQueue?.TryEnqueue(() => { IsStreaming = false; });
 
             }, _ctsForPush.Token);
         }
@@ -423,13 +485,13 @@ namespace NetPlayer.WinUI.Controls
         private void OnEndOfFile()
         {
             Debug.WriteLine("[Media Player] Video decoding has stopped.");
-            DispatcherQueue.TryEnqueue(() => { IsDecoding = false; });
+            DispatcherQueue?.TryEnqueue(() => { IsDecoding = false; });
         }
 
         private void OnRestartVideo()
         {
             Debug.WriteLine("[Media Player] Restarted video.");
-            DispatcherQueue.TryEnqueue(() => { IsDecoding = true; });
+            DispatcherQueue?.TryEnqueue(() => { IsDecoding = true; });
         }
 
         private unsafe void OnVideoFrame(ref AVFrame frame)
@@ -454,6 +516,7 @@ namespace NetPlayer.WinUI.Controls
                 }
 
                 var frameBGRA32 = _videoFrameBGRA32Converter.Convert(frame);
+
                 if ((frameBGRA32.width != 0) && (frameBGRA32.height != 0))
                 {
                     var rawImage = new RawImage

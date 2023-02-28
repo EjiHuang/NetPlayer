@@ -10,5 +10,5 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:pages="using:NetPlayer.WinUI.Pages"
     mc:Ignorable="d">
-    <pages:MainPage />
+    <pages:MainPage x:Name="mainPage" />
 </Window>

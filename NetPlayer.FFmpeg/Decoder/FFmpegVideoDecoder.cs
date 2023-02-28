@@ -4,10 +4,6 @@
 
 using FFmpeg.AutoGen;
 using NetPlayer.FFmpeg.Converter;
-using System;
-using System.Diagnostics;
-using System.Net.Sockets;
-using System.Runtime.InteropServices;
 
 namespace NetPlayer.FFmpeg.Decoder
 {
@@ -21,6 +17,7 @@ namespace NetPlayer.FFmpeg.Decoder
         unsafe private AVInputFormat* _inputFormat = null;
         unsafe private AVFormatContext* _fmtCtx = null;
         unsafe private AVCodecContext* _vidDecCtx = null;
+        unsafe private AVStream* _inputStream = null;
 
         private int _videoStreamIndex;
         private double _videoTimebase;
@@ -263,7 +260,7 @@ namespace NetPlayer.FFmpeg.Decoder
 
         private void RunDecodeLoop()
         {
-            bool needToRestartVideo = true;
+            //bool needToRestartVideo = true;
 
             unsafe
             {
@@ -323,9 +320,9 @@ namespace NetPlayer.FFmpeg.Decoder
                                     _framesDisplayed++;
                                     _videoBytes += pkt->size;
                                     _frameRateCollector.FrameReceived();
-
+                                    
                                     OnVideoFrame?.Invoke(ref *avFrame);
-
+                                    
                                     if (!_isCamera)
                                     {
                                         double dpts = 0;
@@ -382,7 +379,7 @@ namespace NetPlayer.FFmpeg.Decoder
                             {
                                 // We can't easily go back to the beginning of the file ...
                                 canContinue = false;
-                                needToRestartVideo = true;
+                                //needToRestartVideo = true;
                             }
                             else
                             {
